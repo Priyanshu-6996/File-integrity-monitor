@@ -1,0 +1,135 @@
+import hashlib
+import json
+import os
+from pathlib import Path
+
+# Directory to monitor
+MONITOR_DIR = "monitor"
+
+# Database file
+HASH_DB = "file_hashes.json"
+
+# Hash algorithm
+HASH_ALGORITHM = "sha256"
+
+
+def calculate_hash(filepath):
+    """Calculate SHA-256 hash of a file."""
+    hasher = hashlib.new(HASH_ALGORITHM)
+
+    with open(filepath, "rb") as f:
+        while True:
+            chunk = f.read(4096)
+            if not chunk:
+                break
+            hasher.update(chunk)
+
+    return hasher.hexdigest()
+
+
+def scan_directory(directory):
+    """Return a dictionary of file hashes."""
+    hashes = {}
+
+    for root, _, files in os.walk(directory):
+        for file in files:
+            path = os.path.join(root, file)
+
+            try:
+                hashes[path] = calculate_hash(path)
+            except Exception as e:
+                print(f"Could not read {path}: {e}")
+
+    return hashes
+
+
+def save_database(data):
+    with open(HASH_DB, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+def load_database():
+    if not os.path.exists(HASH_DB):
+        return None
+
+    with open(HASH_DB, "r") as f:
+        return json.load(f)
+
+
+def compare(old, new):
+    old_files = set(old.keys())
+    new_files = set(new.keys())
+
+    added = new_files - old_files
+    removed = old_files - new_files
+
+    modified = []
+
+    for file in old_files & new_files:
+        if old[file] != new[file]:
+            modified.append(file)
+
+    return added, removed, modified
+
+
+def initialize():
+    if not Path(MONITOR_DIR).exists():
+        print(f"Directory '{MONITOR_DIR}' does not exist.")
+        return
+
+    hashes = scan_directory(MONITOR_DIR)
+    save_database(hashes)
+    print("Baseline created.")
+
+
+def monitor():
+    old_hashes = load_database()
+
+    if old_hashes is None:
+        print("No baseline found.")
+        print("Run initialization first.")
+        return
+
+    current_hashes = scan_directory(MONITOR_DIR)
+
+    added, removed, modified = compare(old_hashes, current_hashes)
+
+    print("\nIntegrity Report")
+    print("-" * 40)
+
+    if added:
+        print("\nAdded Files:")
+        for f in sorted(added):
+            print(" +", f)
+
+    if removed:
+        print("\nRemoved Files:")
+        for f in sorted(removed):
+            print(" -", f)
+
+    if modified:
+        print("\nModified Files:")
+        for f in sorted(modified):
+            print(" *", f)
+
+    if not (added or removed or modified):
+        print("No changes detected.")
+
+
+def main():
+    print("File Integrity Monitor")
+    print("1. Create baseline")
+    print("2. Check integrity")
+
+    choice = input("Select option: ")
+
+    if choice == "1":
+        initialize()
+    elif choice == "2":
+        monitor()
+    else:
+        print("Invalid option.")
+
+
+if __name__ == "__main__":
+    main()
